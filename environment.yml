@@ -1,0 +1,32 @@
+name: rotokawa
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  # core
+  - numpy
+  - scipy
+  - pandas
+  - matplotlib
+  - xarray
+  # stats and ML
+  - scikit-learn
+  - statsmodels
+  - seaborn
+  # maps and spatial data
+  - geopandas
+  - shapely
+  - pygmt
+  - folium
+  - mapclassify
+  # seismology
+  - obspy
+  - scikit-fmm
+  # notebooks
+  - jupyterlab
+  - notebook
+  - ipykernel
+  - nbstripout
+  - pip
+  - pip:
+      - -e .
