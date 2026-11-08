@@ -6,12 +6,11 @@
 ## About
  
 Hi, I'm Julia! I'm a PhD student in Geophysics at Victoria University of Wellington, jointly with Earth Sciences
-New Zealand (ESNZ). My PhD is part of the MBIE-funded DeepHeat programme. This repository holds the code and notes
-for my PhD.
+New Zealand (ESNZ). My PhD is part of the MBIE-funded DeepHeat programme, which you can find out more about [here](https://geothermalnextgeneration.com/)!
  
 ## Research question
  
-Where is the brittle-ductile transition (BDT) beneath the Rotokawa geothermal field, Taupō Volcanic Zone, and does
+Where is the brittle-ductile transition (BDT) beneath the Rotokawa Geothermal Field, Taupō Volcanic Zone, and does
 it follow the deep conductor and the field's faults?
  
 The BDT is where rock stops breaking and starts to flow, which limits how deep fractures, fluids and heat can
@@ -19,7 +18,7 @@ circulate. Beneath Rotokawa it has never been drilled, and current estimates ran
  
 ## Approach
  
-I'm deploying a new seismic array at Rotokawa and interpreting the results jointly with magnetotelluric (MT) resistivity.
+I will be deploying a new seismic array at Rotokawa and interpreting the results jointly with magnetotelluric (MT) resistivity.
  
 | Method | What it constrains |
 |---|---|
@@ -28,7 +27,7 @@ I'm deploying a new seismic array at Rotokawa and interpreting the results joint
  
 ## Supervisors
  
-- Dr Finnigan Illsley-Kemp, Victoria University of Wellington
+- Finnigan Illsley-Kemp, Victoria University of Wellington
 - Alison Kirkby, Earth Sciences New Zealand
 ## Acknowledgements
  
