@@ -2,6 +2,7 @@
 <p align="center">
   <img src="figures/deepheat-logos.png" alt="Logos" height="60">
 </p>
+
 ## About
  
 Hi, I'm Julia! I'm a PhD student in Geophysics at Victoria University of Wellington, jointly with Earth Sciences
