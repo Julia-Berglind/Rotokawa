@@ -1,6 +1,6 @@
 # Imaging the brittle-ductile transition beneath Rotokawa
 <p align="center">
-  <img src="figures/deepheat-logos.png" alt="Logos" height="60">
+  <img src="figures/project-logos.png" alt="Logos" height="60">
 </p>
 
 ## About
