@@ -5,7 +5,7 @@
 
 ## About
  
-Hi, I'm Julia! I'm a PhD student in Geophysics at Victoria University of Wellington, jointly with Earth Sciences
+Hi, I'm Julia! I'm a PhD student in Geophysics at Victoria University of Wellington, with Earth Sciences
 New Zealand (ESNZ). My PhD is part of the MBIE-funded DeepHeat programme, which you can find out more about [here](https://geothermalnextgeneration.com/)!
  
 ## Research question
