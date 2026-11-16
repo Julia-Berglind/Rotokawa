@@ -1,0 +1,11 @@
+## References
+
+- Bannister, S., Bertrand, E. A., Kilgour, G., Caldwell, T. G., Chambefort, I., Heise, W., & Bourguignon, S. (2025). Seismic imaging of mid-crustal heterogeneity beneath geothermal systems, central Taupō Volcanic Zone, New Zealand. *Journal of Volcanology and Geothermal Research*, 468, 108448. https://doi.org/10.1016/j.jvolgeores.2025.108448
+- Bertrand, E. A., Caldwell, T. G., Bannister, S., Soengkono, S., Bennie, S. L., Hill, G. J., & Heise, W. (2015). Using array MT data to image the crustal resistivity structure of the southeastern Taupo Volcanic Zone, New Zealand. *Journal of Volcanology and Geothermal Research*, 305, 63–75. https://doi.org/10.1016/j.jvolgeores.2015.09.020
+- Blondel, T., Chaput, J., Derode, A., Campillo, M., & Aubry, A. (2018). Matrix approach of seismic imaging: Application to the Erebus volcano, Antarctica. *Journal of Geophysical Research: Solid Earth*, 123(12). https://doi.org/10.1029/2018JB016361
+- Bromley, C. (2014). Seismicity and subsidence: Examples of observed geothermal deformation synergies from New Zealand. In *Proceedings, Thirty-Eighth Workshop on Geothermal Reservoir Engineering*. Stanford University. https://pangea.stanford.edu/ERE/pdf/IGAstandard/SGW/2014/Bromley.pdf
+- Calibugan, A., Melia, K., & Rivera, M. (2022). *Conceptual model update for the Rotokawa Geothermal Field, New Zealand*. Mercury Ltd. Unpublished report.
+- Fridleifsson, G. O., & Elders, W. A. (2005). The Iceland Deep Drilling Project: A search for deep unconventional geothermal resources. *Geothermics*, 34(3), 269–285. https://doi.org/10.1016/j.geothermics.2004.11.004
+- Heise, W., Caldwell, T. G., Bibby, H. M., & Bannister, S. C. (2008). Three-dimensional modelling of magnetotelluric data from the Rotokawa geothermal field, Taupo Volcanic Zone, New Zealand. *Geophysical Journal International*, 173(2), 740–750. https://doi.org/10.1111/j.1365-246X.2008.03737.x
+- Hunt, T. M., & Harms, C. (1990). Gravity survey of the Rotokawa Geothermal Field. *Proceedings of the 12th New Zealand Geothermal Workshop*.
+- Touma, R., Blondel, T., Derode, A., Campillo, M., & Aubry, A. (2021). A distortion matrix framework for high-resolution passive seismic 3-D imaging: Application to the San Jacinto Fault Zone, California. *Geophysical Journal International*, 226(2), 780–794. https://doi.org/10.1093/gji/ggab133
