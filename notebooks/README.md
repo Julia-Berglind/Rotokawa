@@ -7,5 +7,6 @@
 | `03_travel_times` | P travel times from every station to every model cell (eikonal), plus 1D tables. Slow the first time. | `tt/` |
 | `04_scenarios` | Possible "true" Earths: conductor positions sampled around the drill site, combined with several BDT shapes. | `scenarios.npz`, `scenarios.json` |
 | `05_matrix_imaging` | For each scenario: phase 1 picks where the BDT high is, phase 2 images it; static designs for comparison. Scores location error and coverage of the BDT top. Noise-free. | `results_05_mi.csv` |
+| `05b_contrast_sweep` | Reruns 05 (noise-free) for one or two scenarios with a BDT Vp drop of 1, 2.5, 5 and 10 % and finds the smallest drop the best design detects. Scores against 05's relative floor and against a fixed floor. | `results_05b_contrast.csv` |
 
 
