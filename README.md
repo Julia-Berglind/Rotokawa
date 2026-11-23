@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="figures/project-logos.png" alt="Victoria University of Wellington, Earth Sciences New Zealand and DeepHeat logos" height="60">
+  <img src="figures/logos.png" alt="Victoria University of Wellington, Earth Sciences New Zealand and DeepHeat logos" height="60">
 </p>
 
 ## Overview
