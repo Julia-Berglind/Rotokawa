@@ -86,7 +86,7 @@ flowchart LR
 
 ## Outputs
 
-Publications, conference abstracts and posters will be listed here.
+GSNZ 2026: [Project abstract](docs/GSNZ2026_Abstarct.md); [Poster](docs/GSNZ2026-Poster.pdf)
 
 ## People
 
