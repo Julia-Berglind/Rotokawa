@@ -59,7 +59,7 @@ flowchart LR
 ## Study area
 
 <p align="center">
-  <img src="figures/current_stations_map.png" alt="Map of the Rotokawa Geothermal Field showing seismic stations" width="600">
+  <img src="figures/existing_stations_map.pdf" alt="Map of the Rotokawa Geothermal Field showing seismic stations" width="600">
   <br>
   <sub><b>Figure 2.</b> Rotokawa Geothermal Field, Taupō Volcanic Zone, with current seismic stations.</sub>
 </p>
