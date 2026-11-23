@@ -86,7 +86,7 @@ flowchart LR
 
 ## Outputs
 
-GSNZ 2026: [Project abstract](docs/GSNZ2026_Abstarct.md); [Poster](docs/GSNZ2026-Poster.pdf)
+GSNZ 2026: [Project abstract](docs/GSNZ2026_Abstract.md); [Poster](docs/GSNZ2026-Poster.pdf)
 
 ## People
 
