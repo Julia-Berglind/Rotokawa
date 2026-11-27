@@ -9,28 +9,47 @@ Pipeline
   4. K(f)          response matrix  K_ij(f) = < U_i(f) U_j(f)* >  (5x5 per frequency)
                    its inverse FFT gives the noise cross-correlations C_ij(tau)
   5. gate          mute the direct inter-station surface wave (keep later "scattered" lags)
-  6. focus         project K onto a grid of virtual sources/receivers with an assumed velocity:
-                     R(r_in, r_out) = sum_f sum_ij exp(+i w d_i(r_out)/v) K_ij exp(+i w d_j(r_in)/v)
+  6. focus         project K onto a grid of virtual sources/receivers using travel times T_i(r, f)
+                   through the Rotokawa velocity model (data/velocity_model.npz, notebook 01):
+                     R(r_in, r_out) = sum_f sum_ij exp(+i w T_i(r_out, f)) K_ij exp(+i w T_j(r_in, f))
+                   T_i is a 2D eikonal (fast marching) travel time from station i through a map of local
+                   Rayleigh phase velocity c(x, y, f), estimated from each Vs column of the model as
+                   c = RAYLEIGH_VS_RATIO * mean Vs over the top lambda/LAMBDA_FRAC (a rule of thumb, not a
+                   dispersion calculation). Pass v=<km/s> with vmodel=None for the old constant velocity.
                    confocal image I(r) = |R(r, r)|, plus the focused matrix around one point
                    and the array point-spread function (PSF) for a synthetic point scatterer.
 
-Usage (in the environment that has ObsPy):
-    from obspy import read
+Coordinates are km east and north of the drill site in data/site.json, as in the other notebooks, so the
+images line up with the velocity model and stations.csv.
+
+Usage (in the rotokawa environment): see geonet_matrix_imaging.py, or
     import matrix_imaging_pipeline as mip
-    st = read("NZ.*.EHZ.sac")          # or the processed Stream already in memory
-    out = mip.run(st)                  # writes figures + mi_results.npz to the current folder
+    out = mip.run(st)                  # writes figures + mi_results.npz to data/geonet_matrix_imaging/
 
 Parameters that change the result (all defaults are my picks, not established values):
     fmin, fmax   correlation/imaging band (Hz)            default 0.1-1.0
-    v            assumed surface-wave velocity (km/s)      default 2.0
+    vmodel       velocity model .npz                       default data/velocity_model.npz
+    v            constant velocity (km/s), only used when vmodel=None
     win_s        correlation window length (s)            default 120
     v_mute       direct-wave mute velocity (km/s)          default 1.0  (mutes |tau| < d/v_mute + t_pad)
 """
+import json
+import os
+from pathlib import Path
+
 import numpy as np
 from scipy.signal import butter, sosfiltfilt, detrend
 from scipy.ndimage import uniform_filter1d
+from scipy.interpolate import RegularGridInterpolator
 
-KM_PER_DEG = 111.195
+DATA = Path(__file__).resolve().parent.parent / "data"      # repo data/ folder (this file lives in notebooks/)
+OUTDIR = DATA / "geonet_matrix_imaging"
+VMODEL = DATA / "velocity_model.npz"
+SITE = DATA / "site.json"
+KY = 111.32                       # km per degree latitude (as in notebooks 01 and 02)
+RAYLEIGH_VS_RATIO = 0.92          # Rayleigh phase velocity / Vs of a half-space (Poisson solid)
+LAMBDA_FRAC = 3.0                 # Rayleigh waves sample roughly the top wavelength / 3
+N_REF_FREQ = 8                    # frequencies at which travel times are computed (interpolated between)
 
 
 # ---------------------------------------------------------------- 1. load
@@ -38,6 +57,13 @@ def stream_to_array(st, coords=None):
     """coords: optional {station: (lat, lon)}; otherwise read from tr.stats.sac.stla/stlo."""
     st = st.copy()
     st.sort(keys=["station"])
+    # one vertical channel per station: prefer HHZ over EHZ if both came back
+    keep = {}
+    for tr in st:
+        s = tr.stats.station
+        if s not in keep or (tr.stats.channel.startswith("HH") and not keep[s].stats.channel.startswith("HH")):
+            keep[s] = tr
+    st.traces = [keep[s] for s in sorted(keep)]
     names = [tr.stats.station for tr in st]
     fs = float(st[0].stats.sampling_rate)
     if any(tr.stats.sampling_rate != fs for tr in st):
@@ -53,11 +79,17 @@ def stream_to_array(st, coords=None):
     return names, fs, data, lat, lon
 
 
+def drill_site(site=SITE):
+    s = json.load(open(site))["drill_site"]
+    return s["lat"], s["lon"]
+
+
 def to_local_km(lat, lon, lat0=None, lon0=None):
-    lat0 = np.mean(lat) if lat0 is None else lat0
-    lon0 = np.mean(lon) if lon0 is None else lon0
-    x = (lon - lon0) * np.cos(np.radians(lat0)) * KM_PER_DEG
-    y = (lat - lat0) * KM_PER_DEG
+    """km east and north of (lat0, lon0); defaults to the drill site in data/site.json."""
+    if lat0 is None or lon0 is None:
+        lat0, lon0 = drill_site()
+    x = (np.asarray(lon) - lon0) * np.cos(np.radians(lat0)) * KY
+    y = (np.asarray(lat) - lat0) * KY
     return x, y, (lat0, lon0)
 
 
@@ -149,17 +181,82 @@ def gate(C, lags, dist, v_mute=1.0, t_pad=3.0, t_max=60.0, edge_s=2.0):
 
 
 # ---------------------------------------------------------------- 6. focusing
-def make_grid(x, y, pad_km=10.0, dx_km=0.5):
-    gx = np.arange(x.min() - pad_km, x.max() + pad_km + dx_km / 2, dx_km)
-    gy = np.arange(y.min() - pad_km, y.max() + pad_km + dx_km / 2, dx_km)
+def make_grid(x, y, pad_km=10.0, dx_km=0.5, bounds=None):
+    """Imaging grid around the stations; bounds=(xmin, xmax, ymin, ymax) clips it (e.g. to the velocity model)."""
+    x0, x1, y0, y1 = x.min() - pad_km, x.max() + pad_km, y.min() - pad_km, y.max() + pad_km
+    if bounds is not None:
+        x0, x1, y0, y1 = max(x0, bounds[0]), min(x1, bounds[1]), max(y0, bounds[2]), min(y1, bounds[3])
+    gx = np.arange(x0, x1 + dx_km / 2, dx_km)
+    gy = np.arange(y0, y1 + dx_km / 2, dx_km)
     GX, GY = np.meshgrid(gx, gy)
     return gx, gy, GX.ravel(), GY.ravel()
 
 
-def steering(f, x, y, px, py, v):
-    """E[f, i, p] = exp(+i 2 pi f d_ip / v): undoes the travel-time phase from station i to pixel p."""
+# ---------------------------------------------------------------- 6a. velocity model -> travel times
+def load_velocity_model(path=VMODEL):
+    """data/velocity_model.npz from notebook 01: x, y, z (km), vs[x, y, z] (km/s)."""
+    m = np.load(path)
+    return dict(x=m["x"], y=m["y"], z=m["z"], vs=m["vs"], vp=m["vp"])
+
+
+def rayleigh_phase_velocity(vm, freqs, ratio=RAYLEIGH_VS_RATIO, lam_frac=LAMBDA_FRAC, n_iter=10):
+    """c[k, x, y]: approximate Rayleigh phase velocity at freqs[k] from each Vs column:
+    c = ratio * mean(Vs over 0..lambda/lam_frac), lambda = c/f, solved by fixed-point iteration.
+    Long wavelengths that reach the model base average the whole column."""
+    z, vs = vm["z"], vm["vs"]
+    dz = np.gradient(z)
+    cum = np.cumsum(vs * dz, axis=-1)                        # integral of Vs from the surface
+    cumz = np.cumsum(dz)
+    out = np.empty((len(freqs),) + vs.shape[:2])
+    for k, fk in enumerate(freqs):
+        c = ratio * vs[..., 0].copy()
+        for _ in range(n_iter):
+            h = np.clip(c / fk / lam_frac, cumz[0], cumz[-1])  # sampling depth for each column
+            iz = np.searchsorted(cumz, h).clip(0, len(z) - 1)
+            mean_vs = np.take_along_axis(cum, iz[..., None], -1)[..., 0] / cumz[iz]
+            c = ratio * mean_vs
+        out[k] = c
+    return out
+
+
+def eikonal_2d(gx, gy, c, sx, sy, r0=None):
+    """First-arrival time T[x, y] from (sx, sy) through the phase-velocity map c[x, y] (fast marching)."""
+    import skfmm
+    dx = [gx[1] - gx[0], gy[1] - gy[0]]
+    r0 = 1.5 * max(dx) if r0 is None else r0
+    X, Y = np.meshgrid(gx, gy, indexing="ij")
+    d = np.hypot(X - sx, Y - sy)
+    v0 = RegularGridInterpolator((gx, gy), c)([[sx, sy]])[0]
+    t = skfmm.travel_time(d - r0, c, dx=dx, order=2)
+    return np.where(d < r0, d / v0, np.asarray(t) + r0 / v0)
+
+
+def travel_times(vm, f, fmin, fmax, x, y, px, py, n_ref=N_REF_FREQ):
+    """T[f, i, p]: Rayleigh travel time from station i to pixel p at every frequency in f.
+    Computed at n_ref log-spaced frequencies in [fmin, fmax] and interpolated linearly in between
+    (constant outside the band). Also returns the reference frequencies and phase-velocity maps."""
+    fr = np.geomspace(fmin, fmax, n_ref)
+    cmap = rayleigh_phase_velocity(vm, fr)
+    interp_pts = np.column_stack([px, py])
+    Tref = np.empty((n_ref, len(x), len(px)))
+    for k in range(n_ref):
+        for i in range(len(x)):
+            T = eikonal_2d(vm["x"], vm["y"], cmap[k], x[i], y[i])
+            Tref[k, i] = RegularGridInterpolator((vm["x"], vm["y"]), T)(interp_pts)
+    fc = np.clip(f, fr[0], fr[-1])
+    j = np.clip(np.searchsorted(fr, fc) - 1, 0, n_ref - 2)
+    w = ((fc - fr[j]) / (fr[j + 1] - fr[j]))[:, None, None]
+    return (1 - w) * Tref[j] + w * Tref[j + 1], fr, cmap
+
+
+def steering(f, T):
+    """E[f, i, p] = exp(+i 2 pi f T_ip(f)): undoes the travel-time phase from station i to pixel p."""
+    return np.exp(2j * np.pi * f[:, None, None] * T)
+
+
+def constant_velocity_times(f, x, y, px, py, v):
     d = np.hypot(x[:, None] - px[None, :], y[:, None] - py[None, :])  # [i, p]
-    return np.exp(2j * np.pi * f[:, None, None] * d[None] / v)
+    return np.broadcast_to(d / v, (len(f),) + d.shape)
 
 
 def confocal_image(K, E, fmask):
@@ -174,10 +271,10 @@ def focused_row(K, E, fmask, p_in):
     return np.abs(np.einsum("fip,fij,fj->p", Ef, Kf, Ef[:, :, p_in]))
 
 
-def synthetic_K(f, x, y, xs, ys, v):
-    """Ideal response of a single point scatterer at (xs, ys): K_ij = exp(-i w (d_i + d_j)/v)."""
-    d = np.hypot(x - xs, y - ys)
-    ph = np.exp(-2j * np.pi * f[:, None] * d[None] / v)          # [f, i]
+def synthetic_K(f, Ts):
+    """Ideal response of a single point scatterer with station travel times Ts[f, i]:
+    K_ij = exp(-i w (T_i + T_j))."""
+    ph = np.exp(-2j * np.pi * f[:, None] * Ts)                   # [f, i]
     return ph[:, :, None] * ph[:, None, :]
 
 
@@ -203,20 +300,23 @@ def pair_snr(C, lags, dist, v_lo=1.0, v_hi=3.5, gap_s=10.0, noise_len_s=30.0):
 
 
 # ---------------------------------------------------------------- driver
-def run(st, coords=None, fmin=0.1, fmax=1.0, v=2.0, win_s=120.0, overlap=0.5,
-        v_mute=1.0, t_pad=3.0, t_max=60.0, dx_km=0.5, pad_km=10.0, outdir=".", plot=True):
+def run(st, coords=None, fmin=0.1, fmax=1.0, vmodel=VMODEL, v=2.0, win_s=120.0, overlap=0.5,
+        v_mute=1.0, t_pad=3.0, t_max=60.0, dx_km=0.5, pad_km=10.0, outdir=OUTDIR, plot=True):
     names, fs, data, lat, lon = stream_to_array(st, coords)
-    return run_array(names, fs, data, lat, lon, fmin, fmax, v, win_s, overlap,
+    return run_array(names, fs, data, lat, lon, fmin, fmax, vmodel, v, win_s, overlap,
                      v_mute, t_pad, t_max, dx_km, pad_km, outdir, plot)
 
 
-def run_array(names, fs, data, lat, lon, fmin=0.1, fmax=1.0, v=2.0, win_s=120.0, overlap=0.5,
-              v_mute=1.0, t_pad=3.0, t_max=60.0, dx_km=0.5, pad_km=10.0, outdir=".", plot=True):
-    import os
+def run_array(names, fs, data, lat, lon, fmin=0.1, fmax=1.0, vmodel=VMODEL, v=2.0, win_s=120.0, overlap=0.5,
+              v_mute=1.0, t_pad=3.0, t_max=60.0, dx_km=0.5, pad_km=10.0, outdir=OUTDIR, plot=True):
+    """vmodel: path to the velocity model .npz (or a dict from load_velocity_model); None = constant v."""
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
     x, y, origin = to_local_km(lat, lon)
     dist = distance_matrix(x, y)
 
-    print(f"[1] {len(names)} stations {names}, fs={fs} Hz, {data.shape[1]/fs/60:.1f} min")
+    print(f"[1] {len(names)} stations {list(names)}, fs={fs} Hz, {data.shape[1]/fs/60:.1f} min")
+    print(f"    km from drill site: " + ", ".join(f"{n} ({xi:+.1f}, {yi:+.1f})" for n, xi, yi in zip(names, x, y)))
     d = preprocess(data, fs, fmin, fmax)
     U, f, nfft = window_spectra(d, fs, win_s, overlap, fmin, fmax)
     print(f"[3] {U.shape[0]} windows of {win_s:.0f} s, df={f[1]-f[0]:.4f} Hz")
@@ -230,29 +330,71 @@ def run_array(names, fs, data, lat, lon, fmin=0.1, fmax=1.0, v=2.0, win_s=120.0,
     Cg = gate(C, lags, dist, v_mute, t_pad, t_max)
     Kg = correlations_to_K(Cg, nfft)
     fmask = (f >= fmin) & (f <= fmax)
+    fb = f[fmask]
 
-    gx, gy, px, py = make_grid(x, y, pad_km, dx_km)
-    E = steering(f, x, y, px, py, v)
-    img = confocal_image(Kg, E, fmask).reshape(len(gy), len(gx))
+    if vmodel is not None:
+        vm = load_velocity_model(vmodel) if not isinstance(vmodel, dict) else vmodel
+        m = 2 * dx_km                                            # stay inside the model
+        bounds = (vm["x"][0] + m, vm["x"][-1] - m, vm["y"][0] + m, vm["y"][-1] - m)
+        if not (np.all((x > bounds[0]) & (x < bounds[1])) and np.all((y > bounds[2]) & (y < bounds[3]))):
+            raise ValueError("a station lies outside the velocity model grid")
+        gx, gy, px, py = make_grid(x, y, pad_km, dx_km, bounds)
+        T, fref, cref = travel_times(vm, fb, fmin, fmax, x, y, px, py)
+        cmean = cref.mean(axis=(1, 2))
+        print("[6] Rayleigh phase velocity from the velocity model (map mean): "
+              + ", ".join(f"{fr:.2f} Hz {c:.2f} km/s" for fr, c in zip(fref, cmean)))
+        vel_info = dict(vmodel=str(vmodel) if not isinstance(vmodel, dict) else "dict",
+                        f_ref=fref, c_ref_mean=cmean, rayleigh_vs_ratio=RAYLEIGH_VS_RATIO, lambda_frac=LAMBDA_FRAC)
+    else:
+        gx, gy, px, py = make_grid(x, y, pad_km, dx_km)
+        T = constant_velocity_times(fb, x, y, px, py, v)
+        fref = cref = None
+        vel_info = dict(vmodel=None, v=v)
+        print(f"[6] constant velocity {v} km/s")
+
+    E = steering(fb, T)
+    Kb, Ksel = Kg[fmask], np.ones(len(fb), bool)              # E and K now share the band-limited f axis
+    img = confocal_image(Kb, E, Ksel).reshape(len(gy), len(gx))
     pk = np.argmax(img)
-    row = focused_row(Kg, E, fmask, pk).reshape(img.shape)
-    # PSF: what a perfect point scatterer at the image peak would look like with these 5 stations
-    Ks = synthetic_K(f, x, y, px[pk], py[pk], v)
-    psf = confocal_image(Ks, E, fmask).reshape(img.shape)
-    print(f"[6] confocal image peak at x={px[pk]:.1f} km, y={py[pk]:.1f} km (v={v} km/s)")
+    row = focused_row(Kb, E, Ksel, pk).reshape(img.shape)
+    # PSF: what a perfect point scatterer at the image peak would look like with these stations
+    Ks = synthetic_K(fb, T[:, :, pk])
+    psf = confocal_image(Ks, E, Ksel).reshape(img.shape)
+    print(f"[6] confocal image peak at x={px[pk]:.1f} km, y={py[pk]:.1f} km east/north of the drill site")
 
-    np.savez(os.path.join(outdir, "mi_results.npz"), names=names, x=x, y=y, origin=origin,
+    np.savez(outdir / "mi_results.npz", names=names, x=x, y=y, origin=origin,
              f=f, K=K, Kg=Kg, lags=lags, C=C, Cg=Cg, gx=gx, gy=gy, img=img, row=row, psf=psf,
-             params=dict(fmin=fmin, fmax=fmax, v=v, win_s=win_s, overlap=overlap,
-                         v_mute=v_mute, t_pad=t_pad, t_max=t_max))
+             f_ref=fref if fref is not None else np.zeros(0),
+             c_ref=cref if cref is not None else np.zeros(0),
+             params=dict(fmin=fmin, fmax=fmax, win_s=win_s, overlap=overlap,
+                         v_mute=v_mute, t_pad=t_pad, t_max=t_max, dx_km=dx_km, pad_km=pad_km, **vel_info))
     if plot:
         _plots(names, x, y, dist, C, Cg, lags, gx, gy, img, row, psf, px[pk], py[pk], t_max, outdir)
+        if vmodel is not None:
+            _plot_velocity(vm, fref, cref, names, x, y, outdir)
+    print(f"[7] results in {outdir}")
     return dict(names=names, x=x, y=y, f=f, K=K, Kg=Kg, C=C, Cg=Cg, lags=lags,
-                gx=gx, gy=gy, img=img, row=row, psf=psf, snr=snr)
+                gx=gx, gy=gy, img=img, row=row, psf=psf, snr=snr, f_ref=fref, c_ref=cref)
+
+
+def _plot_velocity(vm, fref, cref, names, x, y, outdir):
+    import matplotlib.pyplot as plt
+    ks = sorted({0, len(fref) // 2, len(fref) - 1})
+    fig, axs = plt.subplots(1, len(ks), figsize=(5 * len(ks), 4.6), squeeze=False)
+    for ax, k in zip(axs[0], ks):
+        pc = ax.pcolormesh(vm["x"], vm["y"], cref[k].T, cmap="viridis", shading="auto")
+        ax.plot(x, y, "w^", ms=8, mec="k")
+        for s, xi, yi in zip(names, x, y):
+            ax.text(xi, yi + 0.8, s, color="w", fontsize=7, ha="center")
+        ax.set(aspect="equal", xlabel="East of drill site (km)", title=f"Rayleigh phase velocity, {fref[k]:.2f} Hz")
+        fig.colorbar(pc, ax=ax, shrink=0.8, label="km/s")
+    axs[0, 0].set_ylabel("North of drill site (km)")
+    fig.tight_layout()
+    fig.savefig(Path(outdir) / "mi_phase_velocity.png", dpi=150)
+    plt.close(fig)
 
 
 def _plots(names, x, y, dist, C, Cg, lags, gx, gy, img, row, psf, xp, yp, t_max, outdir):
-    import os
     import matplotlib.pyplot as plt
     n = len(names)
     pairs = sorted([(i, j) for i in range(n) for j in range(i + 1, n)], key=lambda p: dist[p])
@@ -282,10 +424,10 @@ def _plots(names, x, y, dist, C, Cg, lags, gx, gy, img, row, psf, xp, yp, t_max,
         for s, xi, yi in zip(names, x, y):
             ax.text(xi, yi + 0.8, s, color="w", fontsize=7, ha="center")
         ax.plot(xp, yp, "r+", ms=10)
-        ax.set_xlabel("East (km)")
+        ax.set_xlabel("East of drill site (km)")
         ax.set_title(title, fontsize=10)
         fig.colorbar(im, ax=ax, shrink=0.8, label="Normalised amplitude")
-    axs[0].set_ylabel("North (km)")
+    axs[0].set_ylabel("North of drill site (km)")
     fig.tight_layout()
     fig.savefig(os.path.join(outdir, "mi_images.png"), dpi=150)
     plt.close(fig)
@@ -293,4 +435,4 @@ def _plots(names, x, y, dist, C, Cg, lags, gx, gy, img, row, psf, xp, yp, t_max,
 
 if __name__ == "__main__":
     from obspy import read
-    run(read("NZ.*.EHZ.sac"))
+    run(read(str(OUTDIR / "waveforms" / "NZ.*.sac")))
